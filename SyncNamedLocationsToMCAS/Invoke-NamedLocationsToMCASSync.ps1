@@ -363,7 +363,7 @@ Function Get-NamedLocations(){
         'ExpiresOn'=$accessToken.expires_in
     }
 
-    $uri = "https://graph.microsoft.com/beta/conditionalAccess/namedLocations?`$select=displayName,microsoft.graph.ipNamedLocation/ipRanges/&`$filter=microsoft.graph.ipNamedLocation/isTrusted"
+    $uri = "https://graph.microsoft.com/beta/identity/conditionalAccess/namedLocations?`$select=displayName,microsoft.graph.ipNamedLocation/ipRanges/&`$filter=microsoft.graph.ipNamedLocation/isTrusted"
 
     $namedlocations = @()
     do{
