@@ -177,7 +177,7 @@
                                                                 },
                                                                 "body": "@outputs('Create_Tag_JSON_1')",
                                                                 "method": "POST",
-                                                                "uri": "https://api-eu.securitycenter.windows.com/api/machines/@{items('Loop_MachinesWithoutTag')?['id']}/tags"
+                                                                "uri": "https://api.securitycenter.windows.com/api/machines/@{items('Loop_MachinesWithoutTag')?['id']}/tags"
                                                             }
                                                         },
                                                         "Compose_Logging_Data_1": {
@@ -449,7 +449,7 @@
                                                 },
                                                 "body": "@outputs('Compose_Query_LoggedOnUser')",
                                                 "method": "POST",
-                                                "uri": "https://api-eu.securitycenter.windows.com/api/advancedqueries/run"
+                                                "uri": "https://api.securitycenter.windows.com/api/advancedqueries/run"
                                             }
                                         },
                                         "Parse_LoggedOnUser_MachineMDATP": {
@@ -749,7 +749,7 @@
                                                     },
                                                     "body": "@outputs('Create_Tag_JSON')",
                                                     "method": "POST",
-                                                    "uri": "https://api-eu.securitycenter.windows.com/api/machines/@{items('Loop_MachinesWithoutTag')?['id']}/tags"
+                                                    "uri": "https://api.securitycenter.windows.com/api/machines/@{items('Loop_MachinesWithoutTag')?['id']}/tags"
                                                 }
                                             },
                                             "Compose_Logging_Data": {
