@@ -1,0 +1,1140 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "PlaybookName": {
+            "defaultValue": "Assign-MDATPTags",
+            "type": "string",
+            "metadata": {
+                "description": "Name the Logic App should receive"
+            }
+        },
+        "workspaceID": {
+            "type": "string",
+            "metadata": {
+                "description": "Workspace ID to where logs should be saved"
+            }
+        },
+        "workspaceKey": {
+            "type": "securestring",
+            "metadata": {
+                "description": "Workspace ID to where logs should be saved"
+            }
+        },
+        "UserName": {
+            "defaultValue": "<username>@<domain>",
+            "type": "string"
+        },
+        "Attribute": {
+            "defaultValue": "extensionAttribute2",
+            "type": "string",
+            "metadata": {
+                "description": "Which extensionAttributes holds the business area tag"
+            }
+        },
+        "clientID": {
+            "type": "string",
+            "metadata": {
+                "description": "Client ID for the application"
+            }
+        },
+        "clientSecret": {
+            "type": "securestring",
+            "metadata": {
+                "description": "Client Secret for the application"
+            }
+        },
+        "tenantID": {
+            "type": "string",
+            "metadata": {
+                "description": "Tenant ID for the application"
+            }
+        },
+        "Frequency" : {
+            "type": "string",
+            "defaultValue": "Week",
+            "metadata": {
+                "description": "Frequency on when LA should run"
+            },
+            "allowedValues": [
+                "Second",
+                "Minute",
+                "Hour",
+                "Day",
+                "Week",
+                "Month"
+              ]
+        },
+        "Interval" :    {
+            "type": "int",
+            "defaultValue": 1,
+            "metadata": {
+                "description": "Frequency on when LA should run"
+            }
+        },
+        "LibraryID" :    {
+            "type": "string",
+            "defaultValue": "thecollectiveonlinetest.sharepoint.com,56d71e6c-b2cc-44e2-ad7d-6d8618653b3b,6d422168-fe4e-4db8-9f78-f2b97508b795",
+            "metadata": {
+                "description": "ID for the Sharepoint library where the list resides"
+            }
+        },
+        "listID" :    {
+            "type": "string",
+            "defaultValue": "75b78907-217a-4c13-b89b-056aa5a12766",
+            "metadata": {
+                "description": "ID for the Sharepoint list that should be utilized"
+            }
+        }
+    },
+    "variables": {
+        "AzureLogAnalyticsConnectionName": "[concat('azureloganalytics-', parameters('PlaybookName'))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Web/connections",
+            "apiVersion": "2016-06-01",
+            "name": "[variables('AzureLogAnalyticsConnectionName')]",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "displayName": "[parameters('UserName')]",
+                "parameterValues": {
+                    "username":"[parameters('workspaceID')]",
+                    "password":"[parameters('workspaceKey')]"
+                },
+                "api": {
+                    "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azureloganalyticsdatacollector')]"
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2017-07-01",
+            "name": "[parameters('PlaybookName')]",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Web/connections', variables('AzureLogAnalyticsConnectionName'))]"
+            ],
+            "properties": {
+                "state": "Enabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "$connections": {
+                            "defaultValue": {},
+                            "type": "Object"
+                        }
+                    },
+                    "triggers": {
+                        "Recurrence": {
+                            "recurrence": {
+                                "frequency": "[parameters('Frequency')]",
+                                "interval": "[parameters('Interval')]"
+                            },
+                            "type": "Recurrence"
+                        }
+                    },
+                    "actions": {
+                        "Get_MDATP_Machines_Without_Tags": {
+                            "runAfter": {},
+                            "type": "Http",
+                            "inputs": {
+                                "authentication": {
+                                    "audience": "https://api.securitycenter.windows.com",
+                                    "clientId": "[parameters('clientID')]",
+                                    "secret": "[parameters('clientSecret')]",
+                                    "tenant": "[parameters('tenantID')]",
+                                    "type": "ActiveDirectoryOAuth"
+                                },
+                                "method": "GET",
+                                "uri": "https://api.securitycenter.windows.com/api/machines?$filter=(machineTags/any(tag:startswith(tag,'BA'))+eq+false)+and+RbacGroupId+ne+738"
+                            }
+                        },
+                        "Loop_MachinesWithoutTag": {
+                            "foreach": "@body('Parse_MDATP_Machines_Without_Tags')?['value']",
+                            "actions": {
+                                "Check_DeviceName_In_List": {
+                                    "actions": {
+                                        "Check_LoggedOnUser_Found": {
+                                            "actions": {
+                                                "Check_ExtensionAttribute_Found": {
+                                                    "actions": {
+                                                        "Add_Tag_1": {
+                                                            "runAfter": {
+                                                                "Create_Tag_JSON_1": [
+                                                                    "Succeeded"
+                                                                ]
+                                                            },
+                                                            "type": "Http",
+                                                            "inputs": {
+                                                                "authentication": {
+                                                                    "audience": "https://api.securitycenter.windows.com",
+                                                                    "clientId": "[parameters('clientID')]",
+                                                                    "secret": "[parameters('clientSecret')]",
+                                                                    "tenant": "[parameters('tenantID')]",
+                                                                    "type": "ActiveDirectoryOAuth"
+                                                                },
+                                                                "body": "@outputs('Create_Tag_JSON_1')",
+                                                                "method": "POST",
+                                                                "uri": "https://api-eu.securitycenter.windows.com/api/machines/@{items('Loop_MachinesWithoutTag')?['id']}/tags"
+                                                            }
+                                                        },
+                                                        "Compose_Logging_Data_1": {
+                                                            "runAfter": {
+                                                                "Add_Tag_1": [
+                                                                    "Succeeded"
+                                                                ]
+                                                            },
+                                                            "type": "Compose",
+                                                            "inputs": {
+                                                                "Machine ID": "@{items('Loop_MachinesWithoutTag')?['id']}",
+                                                                "Machine Name": "@{items('Loop_MachinesWithoutTag')?['computerDnsName']}",
+                                                                "Tag Added": "true",
+                                                                "Tag Reason": "Logged on user",
+                                                                "Tag Value": "BA:@{first(body('Parse_UserInfo')?['value'])['onPremisesExtensionAttributes'][parameters('Attribute')]}",
+                                                                "User": "@{concat(first(body('Parse_LoggedOnUser_MachineMDATP')?['Results'])?['AccountDomain'],'\\',first(body('Parse_LoggedOnUser_MachineMDATP')?['Results'])?['AccountName'])}"
+                                                            }
+                                                        },
+                                                        "Create_Tag_JSON_1": {
+                                                            "runAfter": {},
+                                                            "type": "Compose",
+                                                            "inputs": {
+                                                                "Action": "Add",
+                                                                "Value": "BA:@{first(body('Parse_UserInfo')?['value'])['onPremisesExtensionAttributes'][parameters('Attribute')]}"
+                                                            }
+                                                        },
+                                                        "Send_Logging_Data_1": {
+                                                            "runAfter": {
+                                                                "Compose_Logging_Data_1": [
+                                                                    "Succeeded"
+                                                                ]
+                                                            },
+                                                            "type": "ApiConnection",
+                                                            "inputs": {
+                                                                "body": "@{outputs('Compose_Logging_Data_1')}",
+                                                                "headers": {
+                                                                    "Log-Type": "MDATPTags"
+                                                                },
+                                                                "host": {
+                                                                    "connection": {
+                                                                        "name": "@parameters('$connections')['azureloganalyticsdatacollector']['connectionId']"
+                                                                    }
+                                                                },
+                                                                "method": "post",
+                                                                "path": "/api/logs"
+                                                            }
+                                                        }
+                                                    },
+                                                    "runAfter": {
+                                                        "Parse_UserInfo": [
+                                                            "Succeeded"
+                                                        ]
+                                                    },
+                                                    "else": {
+                                                        "actions": {
+                                                            "Compose_Logging_Data_2": {
+                                                                "runAfter": {},
+                                                                "type": "Compose",
+                                                                "inputs": {
+                                                                    "Machine ID": "@{items('Loop_MachinesWithoutTag')?['id']}",
+                                                                    "Machine Name": "@{items('Loop_MachinesWithoutTag')?['computerDnsName']}",
+                                                                    "Tag Added": "false",
+                                                                    "Tag Reason": "Logged on user doesn't have extensionAttribute",
+                                                                    "Tag Value": "",
+                                                                    "User": "@{concat(first(body('Parse_LoggedOnUser_MachineMDATP')?['Results'])?['AccountDomain'],'\\',first(body('Parse_LoggedOnUser_MachineMDATP')?['Results'])?['AccountName'])}"
+                                                                }
+                                                            },
+                                                            "Send_Logging_Data_2": {
+                                                                "runAfter": {
+                                                                    "Compose_Logging_Data_2": [
+                                                                        "Succeeded"
+                                                                    ]
+                                                                },
+                                                                "type": "ApiConnection",
+                                                                "inputs": {
+                                                                    "body": "@{outputs('Compose_Logging_Data_2')}",
+                                                                    "headers": {
+                                                                        "Log-Type": "MDATPTags"
+                                                                    },
+                                                                    "host": {
+                                                                        "connection": {
+                                                                            "name": "@parameters('$connections')['azureloganalyticsdatacollector']['connectionId']"
+                                                                        }
+                                                                    },
+                                                                    "method": "post",
+                                                                    "path": "/api/logs"
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    "expression": {
+                                                        "and": [
+                                                            {
+                                                                "not": {
+                                                                    "equals": [
+                                                                        "@empty(first(body('Parse_UserInfo')?['value']))",
+                                                                        "@true"
+                                                                    ]
+                                                                }
+                                                            },
+                                                            {
+                                                                "not": {
+                                                                    "equals": [
+                                                                        "@empty(first(body('Parse_UserInfo')?['value'])['onPremisesExtensionAttributes'][parameters('Attribute')])",
+                                                                        "@true"
+                                                                    ]
+                                                                }
+                                                            }
+                                                        ]
+                                                    },
+                                                    "type": "If"
+                                                },
+                                                "Get_UserInfo_ExtensionAttributes": {
+                                                    "runAfter": {},
+                                                    "type": "Http",
+                                                    "inputs": {
+                                                        "authentication": {
+                                                            "audience": "https://graph.microsoft.com",
+                                                            "clientId": "[parameters('clientID')]",
+                                                            "secret": "[parameters('clientSecret')]",
+                                                            "tenant": "[parameters('tenantID')]",
+                                                            "type": "ActiveDirectoryOAuth"
+                                                        },
+                                                        "headers": {
+                                                            "ConsistencyLevel": "eventual"
+                                                        },
+                                                        "method": "GET",
+                                                        "uri": "https://graph.microsoft.com/beta/users?$filter=onPremisesSamAccountName+eq+'@{first(body('Parse_LoggedOnUser_MachineMDATP')?['Results'])?['AccountName']}'&$count=true&$select=displayName,onPremisesSamAccountName,onPremisesExtensionAttributes"
+                                                    }
+                                                },
+                                                "Parse_UserInfo": {
+                                                    "runAfter": {
+                                                        "Get_UserInfo_ExtensionAttributes": [
+                                                            "Succeeded"
+                                                        ]
+                                                    },
+                                                    "type": "ParseJson",
+                                                    "inputs": {
+                                                        "content": "@body('Get_UserInfo_ExtensionAttributes')",
+                                                        "schema": {
+                                                            "properties": {
+                                                                "@@odata.context": {
+                                                                    "type": "string"
+                                                                },
+                                                                "@@odata.count": {
+                                                                    "type": "integer"
+                                                                },
+                                                                "value": {
+                                                                    "items": {
+                                                                        "properties": {
+                                                                            "displayName": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "onPremisesExtensionAttributes": {
+                                                                                "properties": {
+                                                                                    "extensionAttribute1": {},
+                                                                                    "extensionAttribute10": {},
+                                                                                    "extensionAttribute11": {},
+                                                                                    "extensionAttribute12": {},
+                                                                                    "extensionAttribute13": {},
+                                                                                    "extensionAttribute14": {},
+                                                                                    "extensionAttribute15": {},
+                                                                                    "extensionAttribute2": {
+                                                                                        "type": "string"
+                                                                                    },
+                                                                                    "extensionAttribute3": {},
+                                                                                    "extensionAttribute4": {},
+                                                                                    "extensionAttribute5": {},
+                                                                                    "extensionAttribute6": {},
+                                                                                    "extensionAttribute7": {},
+                                                                                    "extensionAttribute8": {},
+                                                                                    "extensionAttribute9": {}
+                                                                                },
+                                                                                "type": "object"
+                                                                            },
+                                                                            "onPremisesSamAccountName": {
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "displayName",
+                                                                            "onPremisesSamAccountName",
+                                                                            "onPremisesExtensionAttributes"
+                                                                        ],
+                                                                        "type": "object"
+                                                                    },
+                                                                    "type": "array"
+                                                                }
+                                                            },
+                                                            "type": "object"
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            "runAfter": {
+                                                "Parse_LoggedOnUser_MachineMDATP": [
+                                                    "Succeeded"
+                                                ]
+                                            },
+                                            "else": {
+                                                "actions": {
+                                                    "Compose_Logging_Data_3": {
+                                                        "runAfter": {},
+                                                        "type": "Compose",
+                                                        "inputs": {
+                                                            "Machine ID": "@{items('Loop_MachinesWithoutTag')?['id']}",
+                                                            "Machine Name": "@{items('Loop_MachinesWithoutTag')?['computerDnsName']}",
+                                                            "Tag Added": "false",
+                                                            "Tag Reason": "No logged on user",
+                                                            "Tag Value": ""
+                                                        }
+                                                    },
+                                                    "Send_Logging_Data_3": {
+                                                        "runAfter": {
+                                                            "Compose_Logging_Data_3": [
+                                                                "Succeeded"
+                                                            ]
+                                                        },
+                                                        "type": "ApiConnection",
+                                                        "inputs": {
+                                                            "body": "@{outputs('Compose_Logging_Data_3')}",
+                                                            "headers": {
+                                                                "Log-Type": "MDATPTags"
+                                                            },
+                                                            "host": {
+                                                                "connection": {
+                                                                    "name": "@parameters('$connections')['azureloganalyticsdatacollector']['connectionId']"
+                                                                }
+                                                            },
+                                                            "method": "post",
+                                                            "path": "/api/logs"
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            "expression": {
+                                                "and": [
+                                                    {
+                                                        "equals": [
+                                                            "@empty(first(body('Parse_LoggedOnUser_MachineMDATP')?['Results'])?['AccountName'])",
+                                                            "@false"
+                                                        ]
+                                                    }
+                                                ]
+                                            },
+                                            "type": "If"
+                                        },
+                                        "Compose_Query_LoggedOnUser": {
+                                            "runAfter": {},
+                                            "type": "Compose",
+                                            "inputs": {
+                                                "Query": "DeviceLogonEvents | where DeviceId == \"9badce6be9a0398601c44a4d6a8036b60b86b5ff\" | where ActionType == \"LogonSuccess\" | top 1 by Timestamp desc"
+                                            }
+                                        },
+                                        "Get_LoggedOnUser_MachineMDATP": {
+                                            "runAfter": {
+                                                "Compose_Query_LoggedOnUser": [
+                                                    "Succeeded"
+                                                ]
+                                            },
+                                            "type": "Http",
+                                            "inputs": {
+                                                "authentication": {
+                                                    "audience": "https://api.securitycenter.windows.com",
+                                                    "clientId": "[parameters('clientID')]",
+                                                    "secret": "[parameters('clientSecret')]",
+                                                    "tenant": "[parameters('tenantID')]",
+                                                    "type": "ActiveDirectoryOAuth"
+                                                },
+                                                "body": "@outputs('Compose_Query_LoggedOnUser')",
+                                                "method": "POST",
+                                                "uri": "https://api-eu.securitycenter.windows.com/api/advancedqueries/run"
+                                            }
+                                        },
+                                        "Parse_LoggedOnUser_MachineMDATP": {
+                                            "runAfter": {
+                                                "Get_LoggedOnUser_MachineMDATP": [
+                                                    "Succeeded"
+                                                ]
+                                            },
+                                            "type": "ParseJson",
+                                            "inputs": {
+                                                "content": "@body('Get_LoggedOnUser_MachineMDATP')",
+                                                "schema": {
+                                                    "properties": {
+                                                        "Results": {
+                                                            "items": {
+                                                                "properties": {
+                                                                    "AccountDomain": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "AccountName": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "AccountSid": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "ActionType": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "AdditionalFields": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "AppGuardContainerId": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "DeviceId": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "DeviceName": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "InitiatingProcessAccountDomain": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "InitiatingProcessAccountName": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "InitiatingProcessAccountObjectId": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "InitiatingProcessAccountSid": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "InitiatingProcessAccountUpn": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "InitiatingProcessCommandLine": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "InitiatingProcessCreationTime": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "InitiatingProcessFileName": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "InitiatingProcessFolderPath": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "InitiatingProcessId": {
+                                                                        "type": "integer"
+                                                                    },
+                                                                    "InitiatingProcessIntegrityLevel": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "InitiatingProcessMD5": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "InitiatingProcessParentCreationTime": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "InitiatingProcessParentFileName": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "InitiatingProcessParentId": {
+                                                                        "type": "integer"
+                                                                    },
+                                                                    "InitiatingProcessSHA1": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "InitiatingProcessSHA256": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "InitiatingProcessTokenElevation": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "IsLocalAdmin": {},
+                                                                    "LogonId": {
+                                                                        "type": "integer"
+                                                                    },
+                                                                    "LogonType": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "Protocol": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "RemoteDeviceName": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "RemoteIP": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "RemoteIPType": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "RemotePort": {
+                                                                        "type": "integer"
+                                                                    },
+                                                                    "ReportId": {
+                                                                        "type": "integer"
+                                                                    },
+                                                                    "Timestamp": {
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                "required": [
+                                                                    "Timestamp",
+                                                                    "DeviceId",
+                                                                    "DeviceName",
+                                                                    "ActionType",
+                                                                    "AccountDomain",
+                                                                    "AccountName",
+                                                                    "AccountSid",
+                                                                    "LogonType",
+                                                                    "Protocol",
+                                                                    "IsLocalAdmin",
+                                                                    "LogonId",
+                                                                    "RemoteDeviceName",
+                                                                    "RemoteIP",
+                                                                    "RemoteIPType",
+                                                                    "RemotePort",
+                                                                    "AdditionalFields",
+                                                                    "InitiatingProcessAccountDomain",
+                                                                    "InitiatingProcessAccountName",
+                                                                    "InitiatingProcessAccountSid",
+                                                                    "InitiatingProcessAccountUpn",
+                                                                    "InitiatingProcessAccountObjectId",
+                                                                    "InitiatingProcessIntegrityLevel",
+                                                                    "InitiatingProcessTokenElevation",
+                                                                    "InitiatingProcessSHA1",
+                                                                    "InitiatingProcessSHA256",
+                                                                    "InitiatingProcessMD5",
+                                                                    "InitiatingProcessFileName",
+                                                                    "InitiatingProcessId",
+                                                                    "InitiatingProcessCommandLine",
+                                                                    "InitiatingProcessCreationTime",
+                                                                    "InitiatingProcessFolderPath",
+                                                                    "InitiatingProcessParentId",
+                                                                    "InitiatingProcessParentFileName",
+                                                                    "InitiatingProcessParentCreationTime",
+                                                                    "ReportId",
+                                                                    "AppGuardContainerId"
+                                                                ],
+                                                                "type": "object"
+                                                            },
+                                                            "type": "array"
+                                                        },
+                                                        "Schema": {
+                                                            "items": {
+                                                                "properties": {
+                                                                    "Name": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "Type": {
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                "required": [
+                                                                    "Name",
+                                                                    "Type"
+                                                                ],
+                                                                "type": "object"
+                                                            },
+                                                            "type": "array"
+                                                        },
+                                                        "Stats": {
+                                                            "properties": {
+                                                                "ExecutionTime": {
+                                                                    "type": "number"
+                                                                },
+                                                                "dataset_statistics": {
+                                                                    "items": {
+                                                                        "properties": {
+                                                                            "table_row_count": {
+                                                                                "type": "integer"
+                                                                            },
+                                                                            "table_size": {
+                                                                                "type": "integer"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "table_row_count",
+                                                                            "table_size"
+                                                                        ],
+                                                                        "type": "object"
+                                                                    },
+                                                                    "type": "array"
+                                                                },
+                                                                "resource_usage": {
+                                                                    "properties": {
+                                                                        "cache": {
+                                                                            "properties": {
+                                                                                "disk": {
+                                                                                    "properties": {
+                                                                                        "hits": {
+                                                                                            "type": "integer"
+                                                                                        },
+                                                                                        "misses": {
+                                                                                            "type": "integer"
+                                                                                        },
+                                                                                        "total": {
+                                                                                            "type": "integer"
+                                                                                        }
+                                                                                    },
+                                                                                    "type": "object"
+                                                                                },
+                                                                                "memory": {
+                                                                                    "properties": {
+                                                                                        "hits": {
+                                                                                            "type": "integer"
+                                                                                        },
+                                                                                        "misses": {
+                                                                                            "type": "integer"
+                                                                                        },
+                                                                                        "total": {
+                                                                                            "type": "integer"
+                                                                                        }
+                                                                                    },
+                                                                                    "type": "object"
+                                                                                }
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        "cpu": {
+                                                                            "properties": {
+                                                                                "kernel": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "total cpu": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "user": {
+                                                                                    "type": "string"
+                                                                                }
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        "memory": {
+                                                                            "properties": {
+                                                                                "peak_per_node": {
+                                                                                    "type": "integer"
+                                                                                }
+                                                                            },
+                                                                            "type": "object"
+                                                                        }
+                                                                    },
+                                                                    "type": "object"
+                                                                }
+                                                            },
+                                                            "type": "object"
+                                                        }
+                                                    },
+                                                    "type": "object"
+                                                }
+                                            }
+                                        }
+                                    },
+                                    "runAfter": {
+                                        "Parse_BACode_From_Sharepoint": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "else": {
+                                        "actions": {
+                                            "Add_Tag": {
+                                                "runAfter": {
+                                                    "Create_Tag_JSON": [
+                                                        "Succeeded"
+                                                    ]
+                                                },
+                                                "type": "Http",
+                                                "inputs": {
+                                                    "authentication": {
+                                                        "audience": "https://api.securitycenter.windows.com",
+                                                        "clientId": "[parameters('clientID')]",
+                                                        "secret": "[parameters('clientSecret')]",
+                                                        "tenant": "[parameters('tenantID')]",
+                                                        "type": "ActiveDirectoryOAuth"
+                                                    },
+                                                    "body": "@outputs('Create_Tag_JSON')",
+                                                    "method": "POST",
+                                                    "uri": "https://api-eu.securitycenter.windows.com/api/machines/@{items('Loop_MachinesWithoutTag')?['id']}/tags"
+                                                }
+                                            },
+                                            "Compose_Logging_Data": {
+                                                "runAfter": {
+                                                    "Add_Tag": [
+                                                        "Succeeded"
+                                                    ]
+                                                },
+                                                "type": "Compose",
+                                                "inputs": {
+                                                    "Machine ID": "@{items('Loop_MachinesWithoutTag')?['id']}",
+                                                    "Machine Name": "@{items('Loop_MachinesWithoutTag')?['computerDnsName']}",
+                                                    "Tag Added": "true",
+                                                    "Tag Reason": "Machine Name",
+                                                    "Tag Value": "BA:@{first(body('Parse_BACode_From_Sharepoint')?['value'])?['fields']?['BA']}"
+                                                }
+                                            },
+                                            "Create_Tag_JSON": {
+                                                "runAfter": {},
+                                                "type": "Compose",
+                                                "inputs": {
+                                                    "Action": "Add",
+                                                    "Value": "BA:@{first(body('Parse_BACode_From_Sharepoint')?['value'])?['fields']?['BA']}"
+                                                }
+                                            },
+                                            "Send_LoggingData": {
+                                                "runAfter": {
+                                                    "Compose_Logging_Data": [
+                                                        "Succeeded"
+                                                    ]
+                                                },
+                                                "type": "ApiConnection",
+                                                "inputs": {
+                                                    "body": "@{outputs('Compose_Logging_Data')}",
+                                                    "headers": {
+                                                        "Log-Type": "MDATPTags"
+                                                    },
+                                                    "host": {
+                                                        "connection": {
+                                                            "name": "@parameters('$connections')['azureloganalyticsdatacollector']['connectionId']"
+                                                        }
+                                                    },
+                                                    "method": "post",
+                                                    "path": "/api/logs"
+                                                }
+                                            }
+                                        }
+                                    },
+                                    "expression": {
+                                        "and": [
+                                            {
+                                                "equals": [
+                                                    "@empty(body('Parse_BACode_From_Sharepoint')?['value'])",
+                                                    "@true"
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    "type": "If"
+                                },
+                                "Get_BACode_From_Sharepoint": {
+                                    "runAfter": {},
+                                    "type": "Http",
+                                    "inputs": {
+                                        "authentication": {
+                                            "audience": "https://graph.microsoft.com",
+                                            "clientId": "[parameters('clientID')]",
+                                            "secret": "[parameters('clientSecret')]",
+                                            "tenant": "[parameters('tenantID')]",
+                                            "type": "ActiveDirectoryOAuth"
+                                        },
+                                        "method": "GET",
+                                        "uri": "[concat('https://graph.microsoft.com/beta/sites/', parameters('LibraryID'),'/lists/',parameters('listID'),'/items?$expand=fields&$filter=fields/Title+eq+''@{substring(string(items(''Loop_MachinesWithoutTag'')?[''computerDnsName'']),0,3)}''')]"
+                                    }
+                                },
+                                "Parse_BACode_From_Sharepoint": {
+                                    "runAfter": {
+                                        "Get_BACode_From_Sharepoint": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "ParseJson",
+                                    "inputs": {
+                                        "content": "@body('Get_BACode_From_Sharepoint')",
+                                        "schema": {
+                                            "properties": {
+                                                "@@odata.context": {
+                                                    "type": "string"
+                                                },
+                                                "value": {
+                                                    "items": {
+                                                        "properties": {
+                                                            "@@odata.etag": {
+                                                                "type": "string"
+                                                            },
+                                                            "contentType": {
+                                                                "properties": {
+                                                                    "id": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "name": {
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                "type": "object"
+                                                            },
+                                                            "createdBy": {
+                                                                "properties": {
+                                                                    "user": {
+                                                                        "properties": {
+                                                                            "displayName": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "email": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "id": {
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "type": "object"
+                                                                    }
+                                                                },
+                                                                "type": "object"
+                                                            },
+                                                            "createdDateTime": {
+                                                                "type": "string"
+                                                            },
+                                                            "eTag": {
+                                                                "type": "string"
+                                                            },
+                                                            "fields": {
+                                                                "properties": {
+                                                                    "@@odata.etag": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "Attachments": {
+                                                                        "type": "boolean"
+                                                                    },
+                                                                    "AuthorLookupId": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "BA": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "ContentType": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "Created": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "Edit": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "EditorLookupId": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "FolderChildCount": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "ItemChildCount": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "LinkTitle": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "LinkTitleNoMenu": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "Modified": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "Title": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "_ComplianceFlags": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "_ComplianceTag": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "_ComplianceTagUserId": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "_ComplianceTagWrittenTime": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "_UIVersionString": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "id": {
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                "type": "object"
+                                                            },
+                                                            "fields@odata.context": {
+                                                                "type": "string"
+                                                            },
+                                                            "id": {
+                                                                "type": "string"
+                                                            },
+                                                            "lastModifiedBy": {
+                                                                "properties": {
+                                                                    "user": {
+                                                                        "properties": {
+                                                                            "displayName": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "email": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "id": {
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "type": "object"
+                                                                    }
+                                                                },
+                                                                "type": "object"
+                                                            },
+                                                            "lastModifiedDateTime": {
+                                                                "type": "string"
+                                                            },
+                                                            "parentReference": {
+                                                                "properties": {
+                                                                    "siteId": {
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                "type": "object"
+                                                            },
+                                                            "webUrl": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "@@odata.etag",
+                                                            "createdDateTime",
+                                                            "eTag",
+                                                            "id",
+                                                            "lastModifiedDateTime",
+                                                            "webUrl",
+                                                            "createdBy",
+                                                            "lastModifiedBy",
+                                                            "parentReference",
+                                                            "contentType",
+                                                            "fields@odata.context",
+                                                            "fields"
+                                                        ],
+                                                        "type": "object"
+                                                    },
+                                                    "type": "array"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "Parse_MDATP_Machines_Without_Tags": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Foreach"
+                        },
+                        "Parse_MDATP_Machines_Without_Tags": {
+                            "runAfter": {
+                                "Get_MDATP_Machines_Without_Tags": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "ParseJson",
+                            "inputs": {
+                                "content": "@body('Get_MDATP_Machines_Without_Tags')",
+                                "schema": {
+                                    "properties": {
+                                        "@@odata.context": {
+                                            "type": "string"
+                                        },
+                                        "value": {
+                                            "items": {
+                                                "properties": {
+                                                    "aadDeviceId": {
+                                                        "type": "string"
+                                                    },
+                                                    "agentVersion": {
+                                                        "type": "string"
+                                                    },
+                                                    "computerDnsName": {
+                                                        "type": "string"
+                                                    },
+                                                    "exposureLevel": {
+                                                        "type": "string"
+                                                    },
+                                                    "firstSeen": {
+                                                        "type": "string"
+                                                    },
+                                                    "healthStatus": {
+                                                        "type": "string"
+                                                    },
+                                                    "id": {
+                                                        "type": "string"
+                                                    },
+                                                    "lastExternalIpAddress": {
+                                                        "type": "string"
+                                                    },
+                                                    "lastIpAddress": {
+                                                        "type": "string"
+                                                    },
+                                                    "lastSeen": {
+                                                        "type": "string"
+                                                    },
+                                                    "machineTags": {
+                                                        "type": "array"
+                                                    },
+                                                    "osBuild": {
+                                                        "type": "integer"
+                                                    },
+                                                    "osPlatform": {
+                                                        "type": "string"
+                                                    },
+                                                    "osProcessor": {
+                                                        "type": "string"
+                                                    },
+                                                    "osVersion": {},
+                                                    "rbacGroupId": {
+                                                        "type": "integer"
+                                                    },
+                                                    "rbacGroupName": {
+                                                        "type": "string"
+                                                    },
+                                                    "riskScore": {
+                                                        "type": "string"
+                                                    },
+                                                    "version": {
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "required": [
+                                                    "id",
+                                                    "computerDnsName",
+                                                    "firstSeen",
+                                                    "lastSeen",
+                                                    "osPlatform",
+                                                    "osVersion",
+                                                    "osProcessor",
+                                                    "version",
+                                                    "lastIpAddress",
+                                                    "lastExternalIpAddress",
+                                                    "agentVersion",
+                                                    "osBuild",
+                                                    "healthStatus",
+                                                    "rbacGroupId",
+                                                    "rbacGroupName",
+                                                    "riskScore",
+                                                    "exposureLevel",
+                                                    "aadDeviceId",
+                                                    "machineTags"
+                                                ],
+                                                "type": "object"
+                                            },
+                                            "type": "array"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "outputs": {}
+                },
+                "parameters": {
+                    "$connections": {
+                        "value": {
+                            "azureloganalyticsdatacollector": {
+									"connectionId": "[resourceId('Microsoft.Web/connections', variables('AzureLogAnalyticsConnectionName'))]",
+									"connectionName": "[variables('AzureLogAnalyticsConnectionName')]",
+									"id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azureloganalyticsdatacollector')]"
+								}
+                            }
+                    }
+                }
+            }
+        }
+    ]
+}
