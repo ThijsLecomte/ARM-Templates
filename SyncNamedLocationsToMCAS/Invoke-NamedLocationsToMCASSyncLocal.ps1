@@ -1,28 +1,27 @@
-﻿<#
+<#
 .SYNOPSIS
-    Get Azure AD Licensing errors and send email report
+    This script syncs trusted named locations from Conditional Access to Corporate IP Ranges in MDCA
 
 .DESCRIPTION
-    This scripts emails a list of all the users that currently have Azure AD Licensing errors due to AAD group licensing.
-    This scripts prompts for credentials, these will be used to gather information about Azure AD Groups and will be used to send an email.
-    This means this user should have permissions to request group information and permissions to send email through the address specified in the ReportSender Variable
+    This script is meant to run in locally and will request the follwing info:
+        - Credential 'GraphAPI' which has an applicationID as username and applicationSecret as password
+            The application should have 'Policy.Read.All' Microsoft Graph API application permissions and settings.manage MCAS aplication permissions
+        - tenantID
+        - API URL should the in the following format: 365bythijs.eu2.portal.cloudappsecurity.com
 
-    This script requires the MSOnline PowerShell Module
-    https://www.powershellgallery.com/packages/MSOnline/1.1.183.17
-
-    This scripts creates a log file each time the script is executed. 
-    It deleted all the logs it created that are older than 30 days. This value is defined in the MaxAgeLogFiles variable.
+    This script will run once and copy all trusted named locations from Conditional Access to corporate IP ranges in MCAS.
+    BE AWARE: if you currently have corporate IP ranges in MCAS, these will all be overwritten.
 
 .EXAMPLE
     Use script to authenticate with O365
-    ..\Get-AADLicenseErrors..ps1 -ReportSender 'example@contoso.com' -ReportRecipient 'Example2@contoso.com' -SMTPServer "smtp.office365.com" -SMTPPort 587 -SMTPSSL True
+    ..\Invoke-NamedLocationsToMCASSyncLocal.ps1
 
 .EXAMPLE
     Change the default logpath with the use of the parameter logPath
-    ..\Get-AADLicenseErrors..ps1 -logPath "C:\Windows\Temp\CustomScripts\Get-AADLicenseErrors.txt"
+    ..\Invoke-NamedLocationsToMCASSyncLocal.ps1 -logPath "C:\Windows\Temp\CustomScripts\Invoke-NamedLocationsToMCASSyncLocal.txt"
 
 .NOTES
-    File Name  : Invoke-NamedLocationsToMCASSync.ps1  
+    File Name  : Invoke-NamedLocationsToMCASSyncLocal.ps1  
     Author     : Thijs Lecomte 
     Company    : The Collective Consulting
 #>
@@ -103,10 +102,8 @@ function Invoke-MCASRestMethod {
     Write-Verbose "Method is $Method"
 
     $token = $Credential.GetNetworkCredential().Password
-    #MK - Commenting out this line for security reasons. Not sure I like having the raw token in the verbose output.
-    #Write-Verbose "OAuth token is $token"
 
-    $headers = 'Authorization = "Token {0}"' -f $token | ForEach-Object {
+    $headers = 'Authorization = "Bearer {0}"' -f $token | ForEach-Object {
         "@{$_}"
     }
     Write-Verbose "Request headers are $headers"
@@ -231,7 +228,8 @@ Function Update-MCASIPRange(){
     if($Add){
         Write-Verbose "Adding $($subnet) to IPRange $($MCASIPRange.Name)" -Verbose
 
-        $IPRanges = $MCASIPRange.subnets.OriginalString + $subnet
+        $IPRanges += $MCASIPRange.subnets.OriginalString 
+        $IPRanges += $subnet
     }
     elseif($Remove){
         Write-Verbose "Removing $($subnet.originalString) from IPRange $($MCASIPRange.Name)" -Verbose
@@ -255,6 +253,7 @@ Function Update-MCASIPRange(){
         "name"=$MCASIPRange.Name
         "category"=1
         "subnets"=$IPRanges
+        "_id"= $MCASIPRange._id
     }
     
     try{
@@ -288,6 +287,12 @@ Function Create-MCASIPRange{
         $credential
     )
     Write-Verbose "Creating MCAS IP Range. Name: $DisplayName, subnets $IPRanges" -Verbose
+
+    if($ipranges.GetType().Name -eq "String"){
+        $IPRangesArray = @()
+        $IPRangesArray += $IPRanges
+        $IPRanges = $IPRangesArray
+    }
 
     $body=@{
         "name"=$DisplayName
@@ -361,7 +366,7 @@ Function Get-NamedLocations(){
         'ExpiresOn'=$accessToken.expires_in
     }
 
-    $uri = "https://graph.microsoft.com/beta/identity/conditionalAccess/namedLocations?`$select=displayName,microsoft.graph.ipNamedLocation/ipRanges/&`$filter=microsoft.graph.ipNamedLocation/isTrusted"
+    $uri = "https://graph.microsoft.com/v1.0/identity/conditionalAccess/namedLocations?`$select=displayName,microsoft.graph.ipNamedLocation/ipRanges/&`$filter=microsoft.graph.ipNamedLocation/isTrusted"
 
     $namedlocations = @()
     do{
@@ -412,13 +417,48 @@ Function Get-MCASCorpIPRanges{
     return $ipranges
 }
 
+Function Get-MDCAAccessToken{
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        $clientsecret,
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$clientid,
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$tenantId
+    )
+
+    $resourceAppIdUri = '05a65629-4c1b-48c1-a78b-804c4abdd4af'
+    $oAuthUri = "https://login.microsoftonline.com/$tenantId/oauth2/token"
+    $authBody = [Ordered] @{
+        resource = "$resourceAppIdUri"
+        client_id = "$clientid"
+        client_secret = "$clientsecret"
+        grant_type = 'client_credentials'
+    }
+    $authResponse = Invoke-RestMethod -Method Post -Uri $oAuthUri -Body $authBody -ErrorAction Stop
+    $token = $authResponse.access_token
+
+    return $token
+}
+
 $GraphCreds = Get-Credential -Message "Username: ApplicationID, password: Application Secret"
+
 $tenantID = Read-Host -Prompt "Specify TenantID"
-$MCASCreds = Get-Credential -Message 'Username: MCAS URL, password: MCAS API Key'
+
+[string]$MCASUser = Read-Host -Prompt "Specify API URL (without https://)"
 
 $namedlocations = Get-NamedLocations -clientsecret $GraphCreds.GetNetworkCredential().password -clientid $GraphCreds.username -tenantId $tenantID
 
-[Array]$ipranges = Get-MCASCorpIPRanges -credential $MCASCreds
+$MDCAToken = Get-MDCAAccessToken -clientsecret $GraphCreds.GetNetworkCredential().password -clientid $GraphCreds.username -tenantId $tenantID
+
+[securestring]$MCASSECToken = ConvertTo-SecureString $MDCAToken -AsPlainText -Force
+[pscredential]$MCASModernCreds = New-Object System.Management.Automation.PSCredential ($MCASUser, $MCASSECToken)
+
+[Array]$ipranges = Get-MCASCorpIPRanges -credential $MCASModernCreds
 #Loop over named locations
 foreach($named in $namedlocations){
     Write-Verbose "Checking named location $($named.displayName)" -Verbose
@@ -436,7 +476,7 @@ foreach($named in $namedlocations){
             if(!$MCASIPRange.Subnets.OriginalString.Contains($iprange.cidrAddress)){
                 Write-Verbose "IPrange doesnt exist in MCAS, creating" -Verbose
                 
-                $MCASIPRange = Update-MCASIPRange -MCASIPRange $MCASIPRange -Subnet $iprange.cidrAddress -Add -credential $MCASCreds
+                $MCASIPRange = Update-MCASIPRange -MCASIPRange $MCASIPRange -Subnet $iprange.cidrAddress -Add -credential $MCASModernCreds
             }
         }
 
@@ -446,14 +486,14 @@ foreach($named in $namedlocations){
             if(!$named.ipranges.cidrAddress.contains($MCASsubnet.originalString)){
                 Write-Verbose "MCAS range $($MCASsubnet.originalString) doesn't exist in AAD, removing" -Verbose
 
-                $MCASIPRange = Update-MCASIPRange -MCASIPRange $MCASIPRange -Subnet $MCASsubnet -Remove -credential $MCASCreds
+                $MCASIPRange = Update-MCASIPRange -MCASIPRange $MCASIPRange -Subnet $MCASsubnet -Remove -credential $MCASModernCreds
             }
         }
     }
     else {
         #named location doesn't exist in MCAS - Create ip range in MCAS
         Write-Verbose "Named location $($named.displayName) doesn't exist in MCAS, creating" -Verbose
-        Create-MCASIPRange -DisplayName $named.displayName -IPRanges $named.ipRanges.cidrAddress  -credential $MCASCreds
+        Create-MCASIPRange -DisplayName $named.displayName -IPRanges $named.ipRanges.cidrAddress  -credential $MCASModernCreds
     }
 }
 
@@ -464,6 +504,6 @@ foreach($iprange in $ipranges){
     if(!$namedlocations.DisplayName.Contains($iprange.Name)){
         Write-Verbose "$($iprange.name) not found in AAD, removing"
 
-        Remove-MCASIPRange -id $iprange._id -credential $MCASCreds
+        Remove-MCASIPRange -id $iprange._id -credential $MCASModernCreds
     }
 }
