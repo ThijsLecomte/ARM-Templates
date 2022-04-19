@@ -31,12 +31,6 @@
                 "description": "MCAS URL with 'https://' in front"
             }
         },
-        "credentials_MCAS_APIKEY": {
-            "type": "SecureString",
-            "metadata": {
-                "description": "MCAS API KEY"
-            }
-        },
         "TenantID": {
             "type": "String",
             "metadata": {
@@ -83,18 +77,6 @@
             }
         },
         {
-            "type": "Microsoft.Automation/automationAccounts/credentials",
-            "apiVersion": "2015-10-31",
-            "name": "[concat(parameters('AutomationAccount'), '/MCAS')]",
-            "dependsOn": [
-                "[resourceId('Microsoft.Automation/automationAccounts', parameters('AutomationAccount'))]"
-            ],
-            "properties": {
-                "userName": "[parameters('credentials_MCAS_URL')]",
-                "password": "[parameters('credentials_MCAS_APIKEY')]"
-            }
-        },
-        {
             "type": "Microsoft.Automation/automationAccounts/runbooks",
             "apiVersion": "2018-06-30",
             "name": "[concat(parameters('AutomationAccount'),'/',variables('RunBookName'))]",
@@ -122,6 +104,18 @@
             "properties": {
                 "isEncrypted": false,
                 "value": "[concat('\"',parameters('TenantID'),'\"')]"
+            }
+        },
+	{
+            "type": "Microsoft.Automation/automationAccounts/variables",
+            "apiVersion": "2015-10-31",
+            "name": "[concat(parameters('AutomationAccount'), '/APIURL')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Automation/automationAccounts', parameters('AutomationAccount'))]"
+            ],
+            "properties": {
+                "isEncrypted": false,
+                "value": "[concat('\"',parameters('credentials_MCAS_URL'),'\"')]"
             }
         },
         {
