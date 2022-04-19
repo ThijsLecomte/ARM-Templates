@@ -450,7 +450,7 @@ $GraphCreds = Get-AutomationPSCredential -Name 'GraphAPI'
 
 $namedlocations = Get-NamedLocations -clientsecret $GraphCreds.GetNetworkCredential().password -clientid $GraphCreds.username -tenantId (Get-AutomationVariable -Name 'tenantID')
 
-$MDCAToken = Get-MDCAAccessToken -clientsecret $GraphCreds.GetNetworkCredential().password -clientid $GraphCreds.username -tenantId $tenantID
+$MDCAToken = Get-MDCAAccessToken -clientsecret $GraphCreds.GetNetworkCredential().password -clientid $GraphCreds.username -tenantId (Get-AutomationVariable -Name 'tenantID')
 
 $MCASUser = Get-AutomationVariable -Name 'APIURL'
 
