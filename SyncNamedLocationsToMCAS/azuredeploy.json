@@ -46,7 +46,7 @@
         }
     },
     "variables": {
-        "RunBookContentsURI":"https://raw.githubusercontent.com/ThijsLecomte/AzureAD/master/Invoke-NamedLocationsToMCASSync.ps1",
+        "RunBookContentsURI":"https://raw.githubusercontent.com/ThijsLecomte/ARM-Templates/master/SyncNamedLocationsToMCAS/Invoke-NamedLocationsToMCASSync.ps1",
         "RunBookName":"SyncNamedLocationsToMCAS",
         "ScheduleName": "SyncSchedule",
         "syncInterval": "1",
